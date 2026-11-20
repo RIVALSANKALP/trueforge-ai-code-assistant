@@ -1,0 +1,15 @@
+.vscode/**
+src/**
+tsconfig.json
+esbuild.js
+.gitignore
+.vscodeignore
+.trueforge-smoke-test.txt
+data/**
+ARCHITECTURE.md
+IMPLEMENTATION_PLAN.md
+PHASE_0_APPROVAL_CHECKLIST.md
+REQUIREMENTS_TRACEABILITY.md
+TECHNICAL_RISKS.md
+node_modules/**
+*.map

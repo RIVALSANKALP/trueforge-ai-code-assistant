@@ -1,0 +1,188 @@
+{
+  "name": "trueforge-vscode",
+  "displayName": "TrueForge",
+  "description": "Autonomous editor-native AI coding assistant powered exclusively by TrueForge.",
+  "version": "0.1.0",
+  "publisher": "trueforge",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "trueforge",
+    "ai",
+    "coding-assistant",
+    "autonomous-agent",
+    "mcp"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:trueforge.chatView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "trueforge-sidebar",
+          "title": "TrueForge",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "trueforge-sidebar": [
+        {
+          "type": "webview",
+          "id": "trueforge.chatView",
+          "name": "TrueForge Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "trueforge.openChat",
+        "title": "TrueForge: Open Agent Chat",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.status",
+        "title": "TrueForge: Check Connection Status",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.testAgent",
+        "title": "TrueForge: Test Agent Connectivity",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.startSession",
+        "title": "TrueForge: Start New Session",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.explainSelection",
+        "title": "TrueForge: Explain Selected Code",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.inlineEdit",
+        "title": "TrueForge: Inline Edit Selection",
+        "category": "TrueForge"
+      },
+      {
+        "command": "trueforge.reviewPendingEdit",
+        "title": "TrueForge: Review Proposed Changes",
+        "category": "TrueForge",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "trueforge.acceptInlineEdit",
+        "title": "TrueForge: Accept Proposed Changes",
+        "category": "TrueForge",
+        "icon": "$(check)"
+      },
+      {
+        "command": "trueforge.rejectInlineEdit",
+        "title": "TrueForge: Reject Proposed Changes",
+        "category": "TrueForge",
+        "icon": "$(x)"
+      },
+      {
+        "command": "trueforge.autonomousTask",
+        "title": "TrueForge: Run Autonomous Coding Task",
+        "category": "TrueForge",
+        "icon": "$(zap)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "trueforge.inlineEdit",
+          "group": "TrueForge@1"
+        },
+        {
+          "command": "trueforge.explainSelection",
+          "group": "TrueForge@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "trueforge.acceptInlineEdit",
+          "when": "trueforge.hasPendingEdit",
+          "group": "navigation@1"
+        },
+        {
+          "command": "trueforge.rejectInlineEdit",
+          "when": "trueforge.hasPendingEdit",
+          "group": "navigation@2"
+        },
+        {
+          "command": "trueforge.reviewPendingEdit",
+          "when": "trueforge.hasPendingEdit",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "trueforge.inlineEdit",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "TrueForge",
+      "properties": {
+        "trueforge.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8790",
+          "description": "URL of the local TrueForge server endpoint."
+        },
+        "trueforge.agentName": {
+          "type": "string",
+          "default": "forgeagent",
+          "description": "Default TrueForge agent name."
+        },
+        "trueforge.agentId": {
+          "type": "string",
+          "default": "01m7t1cn7kxveffccxp2exv0me",
+          "description": "Default TrueForge agent ID."
+        },
+        "trueforge.contextTokenBudget": {
+          "type": "number",
+          "default": 3500,
+          "description": "Maximum token budget allocated for workspace context in inline edits."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "smoke-test": "node dist/smokeTestRunner.js",
+    "test-milestone2": "node -r ./src/test/mockVscode.cjs dist/inlineEditTest.js",
+    "test-milestone3": "node -r ./src/test/mockVscode.cjs dist/autonomousAgentTest.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "@truefoundry/trueforge-sdk": "^0.185.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

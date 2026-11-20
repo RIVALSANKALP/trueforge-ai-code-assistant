@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Compilation and build artifacts
+dist/
+out/
+*.vsix
+*.tsbuildinfo
+
+# Test and coverage artifacts
+.vscode-test/
+coverage/
+.nyc_output/
+
+# Local secrets, tokens, and environment files
+.env
+.env.*
+*.pem
+*.key
+*.token
+*.cert
+/data/
+
+# Ephemeral Phase 1 smoke test marker file
+.trueforge-smoke-test.txt
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating System files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Isolated VS Code test profile
+.vscode/test-user-data/
