@@ -1,8 +1,8 @@
-# TrueForge: Editor-Native Autonomous AI Coding Agent for VS Code
+# FORGEX: Editor-Native Autonomous AI Coding Agent for VS Code
 
-**Official Submission for the IIT Bombay Techfest 2026–27 TrueFoundry Forge-a-thon (Round 1)**
+**Official Submission by Team FORGEX for the IIT Bombay Techfest 2026–27 TrueFoundry Forge-a-thon (Round 1)**
 
-TrueForge is an autonomous, editor-native AI coding assistant built as a Visual Studio Code extension. It integrates directly with the **TrueForge Local Engine**, utilizing TrueForge as the central agent harness for session state, turn lifecycle management, instruction policies, and model provider routing.
+FORGEX is an autonomous, editor-native AI coding assistant built as a Visual Studio Code extension. It integrates directly with the **TrueForge Local Engine**, utilizing TrueForge as the central agent harness for session state, turn lifecycle management, instruction policies, and model provider routing.
 
 ---
 
@@ -12,8 +12,8 @@ Modern AI coding assistants often suffer from two major architectural flaws:
 1. **Unbounded Autonomy & Silent Writes**: Agents directly modify files on disk without presenting a side-by-side diff review, risking silent code corruption and regression.
 2. **Provider Lock-In & Naive Prompting**: Assistants either hardcode specific proprietary LLM vendor SDKs inside the extension or dump the entire repository into context, causing latency spikes and context window exhaustion.
 
-**The TrueForge Solution**:
-TrueForge solves these challenges by providing an editor-native bridge to the TrueForge harness:
+**The FORGEX Solution**:
+FORGEX solves these challenges by providing an editor-native bridge to the TrueForge harness:
 - **Review-First Staging**: All code proposals are staged in virtual memory (`trueforge-diff://`) and reviewed via native VS Code diff editors. Zero bytes are written to disk without explicit human approval.
 - **TrueForge-as-Harness**: The extension contains zero vendor model SDKs. All model routing (Gemini, Claude, GPT, Ollama) and session streaming are managed by the local TrueForge engine.
 - **Fail-Closed Security**: Traversal attacks, secret files (`.env`, `.sqlite`, `.pem`, `id_rsa`), and parent directories are strictly blocked by canonical path confinement.

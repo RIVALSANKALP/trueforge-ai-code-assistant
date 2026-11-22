@@ -1,7 +1,7 @@
 {
   "name": "trueforge-vscode",
-  "displayName": "TrueForge",
-  "description": "Autonomous editor-native AI coding assistant powered exclusively by TrueForge.",
+  "displayName": "FORGEX",
+  "description": "FORGEX — Autonomous editor-native AI coding assistant powered by the TrueForge agent harness.",
   "version": "0.1.0",
   "publisher": "trueforge",
   "engines": {
@@ -29,7 +29,7 @@
       "activitybar": [
         {
           "id": "trueforge-sidebar",
-          "title": "TrueForge",
+          "title": "FORGEX",
           "icon": "media/icon.svg"
         }
       ]

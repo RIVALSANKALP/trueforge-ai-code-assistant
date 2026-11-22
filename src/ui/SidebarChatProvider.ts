@@ -117,7 +117,7 @@ export class SidebarChatProvider implements vscode.WebviewViewProvider {
     await this.refreshConnectionState();
     if (this.messages.length === 0) {
       this.addSystemMessage(
-        'Welcome to **TrueForge Agent Studio**!\n\n' +
+        'Welcome to **FORGEX Agent Studio**!\n\n' +
         '• **Agent**: `forgeagent` (`google-gemini/gemini-3-1-flash-lite`)\n' +
         '• **Chat Mode**: Direct streaming conversations & code assistance.\n' +
         '• **Autonomous Mode**: Multi-step autonomous planning, workspace inspection, and safe diff proposals.\n' +
@@ -796,7 +796,7 @@ export class SidebarChatProvider implements vscode.WebviewViewProvider {
 
       const header = document.createElement('div');
       header.className = 'msg-header';
-      header.innerHTML = '<span>' + (msg.role === 'user' ? 'You' : msg.role === 'agent' ? 'TrueForge Agent' : 'System') + '</span><span>' + msg.timestamp + '</span>';
+      header.innerHTML = '<span>' + (msg.role === 'user' ? 'You' : msg.role === 'agent' ? 'FORGEX Agent' : 'System') + '</span><span>' + msg.timestamp + '</span>';
       div.appendChild(header);
 
       const content = document.createElement('div');

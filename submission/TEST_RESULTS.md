@@ -1,5 +1,7 @@
-# TrueForge Round 1 Official Benchmark Test Results
+# FORGEX Round 1 Official Benchmark Test Results
 
+**Project**: FORGEX — Editor-Native Autonomous AI Coding Agent for VS Code  
+**Team**: FORGEX  
 **Date**: November 22, 2026  
 **Evaluation Target**: IIT Bombay Techfest Forge-a-thon Round 1  
 **Extension Repository**: `D:\TrueForge-Forgeathon`  

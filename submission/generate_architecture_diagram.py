@@ -28,7 +28,7 @@ def generate_diagram(output_path):
                                          boxstyle="round,pad=0.5,rounding_size=1.5",
                                          facecolor=box_bg_vscode, edgecolor='#CBD5E1', linewidth=1.5)
     ax.add_patch(rect_vscode)
-    ax.text(24, 36.8, "VS Code Extension Host (Local Client)", ha='center', va='center',
+    ax.text(24, 36.8, "VS Code Extension Host (FORGEX Client)", ha='center', va='center',
             fontsize=10.5, fontweight='bold', color=navy_header)
 
     # Sub-components inside VS Code

@@ -5,7 +5,7 @@
   "targetSymbol": "get_debug_flag",
   "prompt": "Treat the values 'off' and 'n' as false as well, case-insensitively, and update the docstring to list every value that is treated as false.",
   "workflow": {
-    "action": "Inline Edit via TrueForge extension",
+    "action": "Inline Edit via FORGEX extension",
     "zeroWriteBeforeApproval": true,
     "diffPresented": true,
     "explicitApprovalRequired": true,

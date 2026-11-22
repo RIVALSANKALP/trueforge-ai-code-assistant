@@ -1,5 +1,7 @@
-# TrueForge Round 1 Official Demo Recording Guide & Storyboard
+# FORGEX Round 1 Official Demo Recording Guide & Storyboard
 
+**Project**: FORGEX — Editor-Native Autonomous AI Coding Agent for VS Code  
+**Team**: FORGEX  
 **Document Purpose**: Official recording setup, storyboard timeline, and operator instructions for capturing `submission/round1_demo_raw.mp4` for the IIT Bombay Techfest Forge-a-thon Round 1 submission.
 
 ---
@@ -40,7 +42,7 @@
   - Status bar shows `TrueForge: Connected (forgeagent)` on port 8790.
   - Terminal shows running MCP Bridge on `127.0.0.1:8799` with registered connector `vscode-tools`.
 - **Key Message / Voiceover Cue**:
-  - "Welcome to TrueForge, an autonomous, editor-native AI coding assistant built on the official TrueForge local engine. TrueForge integrates bidirectional MCP tools directly into VS Code, enforcing strict security boundaries, fail-closed path confinement, and a review-first workflow with zero unapproved disk writes."
+  - "Welcome to FORGEX, an autonomous, editor-native AI coding assistant built on the official TrueForge local engine. FORGEX integrates bidirectional MCP tools directly into VS Code, enforcing strict security boundaries, fail-closed path confinement, and a review-first workflow with zero unapproved disk writes."
 
 ---
 

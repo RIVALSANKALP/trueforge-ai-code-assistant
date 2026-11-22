@@ -1,6 +1,7 @@
-# TrueForge QA Audit and Release Verification Report
+# FORGEX QA Audit and Release Verification Report
 
-**Project**: IIT Bombay Techfest Forge-a-thon 2026 — TrueForge VS Code Extension  
+**Project**: IIT Bombay Techfest Forge-a-thon 2026 — FORGEX VS Code Extension  
+**Team**: FORGEX  
 **Auditor**: Senior QA Engineer & Release Auditor  
 **Date**: November 22, 2026  
 **Audited Repositories**:

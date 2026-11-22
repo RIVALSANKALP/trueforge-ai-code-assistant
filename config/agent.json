@@ -1,6 +1,6 @@
 {
   "name": "forgeagent",
-  "description": "TrueForge Autonomous Coding Agent for VS Code",
+  "description": "FORGEX Autonomous Coding Agent for VS Code (TrueForge Harness)",
   "manifest": {
     "model": {
       "name": "google-gemini/gemini-3-5-flash-lite",

@@ -1,6 +1,8 @@
-# TrueForge Round 1 Official Benchmark QA Audit Report
+# FORGEX Round 1 Official Benchmark QA Audit Report
 
 **Date of Execution**: November 22, 2026  
+**Project**: FORGEX — Editor-Native Autonomous AI Coding Agent for VS Code  
+**Team**: FORGEX  
 **Auditor Role**: Official Benchmark Operator, QA Engineer & Screen Recording Assistant  
 **Event**: IIT Bombay Techfest Forge-a-thon — Round 1 Submission  
 **Extension Repository**: `D:\TrueForge-Forgeathon`  
