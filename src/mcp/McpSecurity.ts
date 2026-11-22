@@ -6,6 +6,27 @@ import * as crypto from 'crypto';
  * verification, loopback host validation, and token redaction in logs.
  */
 export class McpSecurity {
+  public static readonly DEFAULT_MCP_PORT = 8799;
+  public static readonly MIN_PORT = 1;
+  public static readonly MAX_PORT = 65535;
+
+  /**
+   * Validates an MCP port number.
+   * Returns defaultPort (8799) if value is missing, not an integer, or outside [1, 65535]
+   * (or [0, 65535] if allowZero is true).
+   */
+  public static validatePort(value: unknown, defaultPort = McpSecurity.DEFAULT_MCP_PORT, allowZero = true): number {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      if (allowZero && value === 0) {
+        return 0;
+      }
+      if (value >= McpSecurity.MIN_PORT && value <= McpSecurity.MAX_PORT) {
+        return value;
+      }
+    }
+    return defaultPort;
+  }
+
   /**
    * Generates a high-entropy per-instance identifier.
    * Minted as 16 cryptographically random bytes (32 hex characters).

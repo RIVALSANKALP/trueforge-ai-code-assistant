@@ -7,6 +7,12 @@ out/
 *.vsix
 *.tsbuildinfo
 
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
 # Test and coverage artifacts
 .vscode-test/
 coverage/
@@ -19,7 +25,28 @@ coverage/
 *.key
 *.token
 *.cert
+
+# Local TrueForge database and state
+data/
 /data/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+TrueForge.db*
+trueforge.sqlite*
+
+# Media and temporary large artifacts
+*.mp4
+*.mov
+*.avi
+*.wav
+
+# Microsoft Office temporary files
+~$*.docx
 
 # Ephemeral Phase 1 smoke test marker file
 .trueforge-smoke-test.txt

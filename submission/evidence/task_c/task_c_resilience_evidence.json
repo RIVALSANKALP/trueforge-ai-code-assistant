@@ -1,0 +1,27 @@
+{
+  "test": "Task C: Resilience & Offline Protection",
+  "timestamp": "2026-11-22T15:47:31.624Z",
+  "unreachableEndpoint": "http://127.0.0.1:9999",
+  "restoredEndpoint": "http://localhost:8790",
+  "prompt": "Treat the values 'off' and 'n' as false as well, case-insensitively, and update the docstring to list every value that is treated as false.",
+  "targetFile": "D:\\Forgeathon-Evaluation\\flask-resilience\\src\\flask\\helpers.py",
+  "baseline": {
+    "gitStatus": "",
+    "sha256": "49848f1857424cdf16e411d1da93b9e36dcbbaf6b1e324166a67634be7c4fcc7"
+  },
+  "failureObservation": {
+    "errorCaught": "fetch failed",
+    "errorNotification": "fetch failed",
+    "editorResponsive": true,
+    "pendingEditsRemaining": 0
+  },
+  "postVerification": {
+    "sha256": "49848f1857424cdf16e411d1da93b9e36dcbbaf6b1e324166a67634be7c4fcc7",
+    "hashesMatch": true,
+    "gitStatus": "",
+    "workspaceUntouched": true
+  },
+  "restorationVerification": {
+    "ok": true
+  }
+}

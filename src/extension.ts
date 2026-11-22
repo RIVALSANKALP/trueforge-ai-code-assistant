@@ -3,18 +3,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TrueForgeConnection } from './connection/TrueForgeConnection.js';
 import { LocalMcpBridge } from './mcp/LocalMcpBridge.js';
+import { McpLifecycleManager } from './mcp/McpLifecycleManager.js';
+import { McpConnectorRegistrar } from './mcp/McpConnectorRegistrar.js';
 import { McpSecurity } from './mcp/McpSecurity.js';
 import { SidebarChatProvider } from './ui/SidebarChatProvider.js';
 import { WorkspaceContextDiscovery } from './context/WorkspaceContextDiscovery.js';
 import { ContextAssembler } from './context/ContextAssembler.js';
 import { InlineEditManager } from './diff/InlineEditManager.js';
-import { WorkspaceTools } from './agent/WorkspaceTools.js';
+import { WorkspaceTools, ProposeEditResult } from './agent/WorkspaceTools.js';
 import { AutonomousAgentCoordinator } from './agent/AutonomousAgentCoordinator.js';
 
 let outputChannel: vscode.OutputChannel | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let connection: TrueForgeConnection | undefined;
 let localBridge: LocalMcpBridge | undefined;
+let mcpLifecycleManager: McpLifecycleManager | undefined;
+let mcpRegistrar: McpConnectorRegistrar | undefined;
 let instanceId: string | undefined;
 let chatProvider: SidebarChatProvider | undefined;
 let inlineEditManager: InlineEditManager | undefined;
@@ -130,18 +134,69 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 8. Initial health probe & status bar update
   await updateHealthStatus(serverUrl);
 
-  // 9. Start the local loopback MCP bridge (gated by SSRF)
+  // 9. Start the local loopback MCP bridge via McpLifecycleManager (gated by SSRF)
   if (workspaceRoot) {
     try {
-      localBridge = new LocalMcpBridge({
+      const configuredPort = config.get<number>('mcpPort', 8799);
+      mcpLifecycleManager = new McpLifecycleManager({
         instanceId,
         workspaceRoot,
+        tools: workspaceTools,
+        preferredPort: configuredPort,
+        onProposeEdit: async (proposal: ProposeEditResult): Promise<boolean> => {
+          if (!inlineEditManager) {
+            outputChannel?.appendLine(
+              `[${new Date().toISOString()}] [MCP propose_edit] Proposal rejected: InlineEditManager is not initialized.`
+            );
+            return false;
+          }
+
+          outputChannel?.appendLine(
+            `[${new Date().toISOString()}] [MCP propose_edit] Opening VS Code diff review editor for "${proposal.relativePath}"...`
+          );
+
+          try {
+            const staged = await inlineEditManager.registerAutonomousProposal(
+              proposal.absolutePath,
+              proposal.replacementCode,
+              proposal.explanation,
+              {
+                startLine: proposal.startLine,
+                endLine: proposal.endLine,
+                fullProposedText: proposal.fullProposedText,
+                allowQueue: true
+              }
+            );
+
+            if (staged) {
+              outputChannel?.appendLine(
+                `[${new Date().toISOString()}] [MCP propose_edit] Diff review editor opened successfully for "${proposal.relativePath}".`
+              );
+            } else {
+              outputChannel?.appendLine(
+                `[${new Date().toISOString()}] [MCP propose_edit] Proposal for "${proposal.relativePath}" was rejected by InlineEditManager (existing proposal awaiting review or operation in progress).`
+              );
+            }
+            return staged;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            outputChannel?.appendLine(
+              `[${new Date().toISOString()}] [MCP propose_edit] Error in registerAutonomousProposal: ${msg}`
+            );
+            return false;
+          }
+        },
         onLog: (msg) => outputChannel?.appendLine(msg)
       });
+      context.subscriptions.push(mcpLifecycleManager);
 
-      const bridgeInfo = await localBridge.start();
+      const bridgeInfo = await mcpLifecycleManager.start();
+      localBridge = mcpLifecycleManager.getBridge();
+      const fallbackNote = bridgeInfo.fallbackOccurred
+        ? ` (fell back from preferred port ${configuredPort})`
+        : '';
       outputChannel.appendLine(
-        `[${new Date().toISOString()}] Local loopback MCP bridge started on port ${bridgeInfo.port} (${localBridge.getServerName()}) [Gated by SSRF]`
+        `[${new Date().toISOString()}] Local loopback MCP bridge started on port ${bridgeInfo.port}${fallbackNote} (${localBridge?.getServerName()}) [Gated by SSRF]`
       );
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -282,6 +337,64 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   );
 
+  const registerMcpConnectorDisposable = vscode.commands.registerCommand(
+    'trueforge.registerMcpConnector',
+    async () => {
+      outputChannel?.appendLine(`[${new Date().toISOString()}] User invoked trueforge.registerMcpConnector command.`);
+      if (!connection) {
+        vscode.window.showErrorMessage('TrueForge connection is not initialized.');
+        return;
+      }
+      if (!mcpLifecycleManager) {
+        vscode.window.showErrorMessage(
+          'TrueForge: Local MCP bridge is not initialized. Please open a workspace folder first.'
+        );
+        return;
+      }
+
+      if (!mcpRegistrar) {
+        mcpRegistrar = new McpConnectorRegistrar({
+          connection,
+          lifecycleManager: mcpLifecycleManager,
+          onLog: (msg) => outputChannel?.appendLine(msg)
+        });
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'TrueForge: Registering local MCP connector (vscode-tools)...',
+          cancellable: false
+        },
+        async () => {
+          const result = await mcpRegistrar!.registerConnector({
+            forceUpdate: true,
+            verifyTools: true
+          });
+          if (result.success) {
+            const actionMsg =
+              result.action === 'already_registered'
+                ? 'already registered and up-to-date'
+                : result.action === 'updated'
+                ? 'updated successfully'
+                : 'registered successfully';
+            const countMsg =
+              result.toolsDiscovered !== undefined
+                ? ` (${result.toolsDiscovered.length} tool${result.toolsDiscovered.length === 1 ? '' : 's'} verified)`
+                : '';
+            vscode.window.showInformationMessage(
+              `TrueForge: MCP connector "${result.connectorName}" is ${actionMsg}${countMsg}.`
+            );
+          } else {
+            vscode.window.showErrorMessage(
+              `TrueForge MCP Registration Failed: ${result.error || result.message}`
+            );
+          }
+        }
+      );
+    }
+  );
+
   context.subscriptions.push(
     outputChannel,
     openChatDisposable,
@@ -293,7 +406,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     reviewPendingEditDisposable,
     acceptInlineEditDisposable,
     rejectInlineEditDisposable,
-    autonomousTaskDisposable
+    autonomousTaskDisposable,
+    registerMcpConnectorDisposable
   );
 
   outputChannel.appendLine(`[${new Date().toISOString()}] TrueForge extension activated successfully with Milestone 3 (Autonomous Agent Mode).`);
@@ -324,7 +438,15 @@ export async function deactivate(): Promise<void> {
     outputChannel.appendLine(`[${new Date().toISOString()}] TrueForge extension deactivating...`);
   }
 
-  if (localBridge) {
+  if (mcpLifecycleManager) {
+    try {
+      await mcpLifecycleManager.stop();
+    } catch {
+      // Ignore stop errors on deactivation
+    }
+    mcpLifecycleManager = undefined;
+    localBridge = undefined;
+  } else if (localBridge) {
     try {
       await localBridge.stop();
     } catch {
@@ -340,6 +462,7 @@ export async function deactivate(): Promise<void> {
 
   connection = undefined;
   instanceId = undefined;
+  mcpRegistrar = undefined;
   chatProvider = undefined;
   inlineEditManager = undefined;
   contextDiscovery = undefined;

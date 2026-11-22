@@ -43,6 +43,10 @@ export class ContextAssembler {
     this.surroundingLines = options?.surroundingContextLines ?? 20;
   }
 
+  public getDiscovery(): WorkspaceContextDiscovery {
+    return this.discovery;
+  }
+
   /**
    * Assembles prioritized context for code editing, enforcing the token budget.
    */

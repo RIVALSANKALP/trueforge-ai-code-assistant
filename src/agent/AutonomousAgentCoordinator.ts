@@ -1,6 +1,11 @@
+import * as vscode from 'vscode';
 import { TrueForgeConnection } from '../connection/TrueForgeConnection.js';
 import { WorkspaceTools, ProposeEditResult } from './WorkspaceTools.js';
 import { InlineEditManager } from '../diff/InlineEditManager.js';
+
+export const DEFAULT_MAX_ITERATIONS = 15;
+export const MIN_MAX_ITERATIONS = 1;
+export const MAX_MAX_ITERATIONS = 30;
 
 export interface PlanStep {
   id: number;
@@ -37,27 +42,89 @@ export interface AgentTaskResult {
   modifiedFiles: string[];
   error?: string;
   cancelled?: boolean;
+  pausedForInput?: boolean;
   proposedEdit?: ProposeEditResult;
+  proposedEdits?: ProposeEditResult[];
 }
 
 export class AutonomousAgentCoordinator {
+  public static readonly DEFAULT_MAX_ITERATIONS = DEFAULT_MAX_ITERATIONS;
+  public static readonly MIN_MAX_ITERATIONS = MIN_MAX_ITERATIONS;
+  public static readonly MAX_MAX_ITERATIONS = MAX_MAX_ITERATIONS;
+
   private readonly connection: TrueForgeConnection;
   private readonly tools: WorkspaceTools;
   private readonly inlineEditManager: InlineEditManager;
   private currentSessionId: string | null = null;
   private isCancelled = false;
+  private activeAbortController?: AbortController;
+  private readonly injectedMaxIterations?: number;
   private maxIterations: number;
 
   constructor(
     connection: TrueForgeConnection,
     tools: WorkspaceTools,
     inlineEditManager: InlineEditManager,
-    maxIterations = 6
+    maxIterations?: number
   ) {
     this.connection = connection;
     this.tools = tools;
     this.inlineEditManager = inlineEditManager;
-    this.maxIterations = maxIterations;
+    this.injectedMaxIterations = maxIterations;
+    this.maxIterations = AutonomousAgentCoordinator.resolveMaxIterations(maxIterations);
+  }
+
+  public getCurrentSessionId(): string | null {
+    return this.currentSessionId;
+  }
+
+  public getMaxIterations(): number {
+    return this.injectedMaxIterations !== undefined
+      ? this.maxIterations
+      : AutonomousAgentCoordinator.resolveMaxIterations();
+  }
+
+  /**
+   * Validates an iteration limit value.
+   * Must be an integer between MIN_MAX_ITERATIONS (1) and MAX_MAX_ITERATIONS (30).
+   * Invalid, missing, or out-of-range values safely fall back to DEFAULT_MAX_ITERATIONS (15).
+   */
+  public static validateIterations(value: unknown): number {
+    if (
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      value >= AutonomousAgentCoordinator.MIN_MAX_ITERATIONS &&
+      value <= AutonomousAgentCoordinator.MAX_MAX_ITERATIONS
+    ) {
+      return value;
+    }
+    return AutonomousAgentCoordinator.DEFAULT_MAX_ITERATIONS;
+  }
+
+  /**
+   * Resolves the maximum autonomous execution iterations.
+   * If injectedValue is provided, it is validated and used.
+   * Otherwise, the setting is read from vscode.workspace.getConfiguration("trueforge").
+   * Missing, invalid, or out-of-range values safely fall back to DEFAULT_MAX_ITERATIONS (15).
+   */
+  public static resolveMaxIterations(injectedValue?: number): number {
+    if (injectedValue !== undefined) {
+      return AutonomousAgentCoordinator.validateIterations(injectedValue);
+    }
+
+    try {
+      if (typeof vscode !== 'undefined' && vscode.workspace && typeof vscode.workspace.getConfiguration === 'function') {
+        const config = vscode.workspace.getConfiguration('trueforge');
+        const configured = config.get<number>('maxAutonomousIterations');
+        if (configured !== undefined && configured !== null) {
+          return AutonomousAgentCoordinator.validateIterations(configured);
+        }
+      }
+    } catch {
+      // Safely fall through to default on any configuration read error
+    }
+
+    return AutonomousAgentCoordinator.DEFAULT_MAX_ITERATIONS;
   }
 
   /**
@@ -86,7 +153,28 @@ export class AutonomousAgentCoordinator {
     this.isCancelled = false;
     let plan: TaskPlan | undefined;
     const modifiedFiles: string[] = [];
-    let proposedEditResult: ProposeEditResult | undefined;
+    const stagedProposals = new Map<string, ProposeEditResult>();
+    let isResumablePause = false;
+    let loopDetectedError: string | null = null;
+
+    // Tool call history for loop detection
+    const toolHistory: Array<{ tool: string; argsKey: string }> = [];
+    const checkLoop = (tool: string, rawArgs: any): { isLoop: boolean; count: number } => {
+      const argsKey = JSON.stringify(rawArgs || {});
+      let count = 0;
+      for (let i = toolHistory.length - 1; i >= 0; i--) {
+        if (toolHistory[i].tool === tool && toolHistory[i].argsKey === argsKey) {
+          count++;
+        } else {
+          break;
+        }
+      }
+      toolHistory.push({ tool, argsKey });
+      return { isLoop: count >= 3, count: count + 1 };
+    };
+
+    const effectiveMaxIterations = this.getMaxIterations();
+    this.maxIterations = effectiveMaxIterations;
 
     try {
       emit('thought', `Initializing autonomous task: "${userTask}"...`);
@@ -99,23 +187,132 @@ export class AutonomousAgentCoordinator {
       let currentTurnPrompt = this.buildInitialPrompt(userTask);
       let iteration = 0;
 
-      while (iteration < this.maxIterations) {
+      while (iteration < effectiveMaxIterations) {
         if (this.isCancelled) {
           emit('task_cancelled', { reason: 'Cancelled by user.' });
           return { success: false, summary: 'Task was cancelled by user.', modifiedFiles, cancelled: true };
         }
 
         iteration++;
-        emit('thought', `[Iteration ${iteration}/${this.maxIterations}] Evaluating step...`);
+        emit('thought', `[Iteration ${iteration}/${effectiveMaxIterations}] Evaluating step...`);
 
         let response = '';
-        response = await this.connection.executeTurnStream(
-          this.currentSessionId,
-          currentTurnPrompt,
-          (delta) => {
-            response += delta;
+        let rateLimitRetries = 0;
+        const maxRateLimitRetries = 2;
+
+        while (true) {
+          try {
+            this.activeAbortController = new AbortController();
+            response = await this.connection.executeTurnStream(
+              this.currentSessionId,
+              currentTurnPrompt,
+              {
+                onDelta: (delta) => {
+                  response += delta;
+                },
+                onToolCall: (tc) => {
+                  emit('tool_call', { toolName: tc.tool, args: tc.arguments });
+                  if (plan && plan.steps.length > 0) {
+                    const activeStep =
+                      plan.steps.find((s) => s.status === 'in_progress') ||
+                      plan.steps.find((s) => s.status === 'pending');
+                    if (activeStep) {
+                      activeStep.status = 'in_progress';
+                      emit('step_update', activeStep);
+                    }
+                  }
+                },
+                onToolResult: (tr) => {
+                  emit('tool_result', { toolName: tr.toolName, success: tr.success, output: tr.output });
+                  if (plan && plan.steps.length > 0) {
+                    const currentStep = plan.steps.find((s) => s.status === 'in_progress');
+                    if (currentStep) {
+                      currentStep.status = tr.success ? 'completed' : 'failed';
+                      emit('step_update', currentStep);
+
+                      if (tr.success) {
+                        const nextStep = plan.steps.find((s) => s.status === 'pending');
+                        if (nextStep) {
+                          nextStep.status = 'in_progress';
+                          emit('step_update', nextStep);
+                        }
+                      }
+                    }
+                  }
+                },
+                toolExecutor: async (name, args) => {
+                  if (this.isCancelled) {
+                    throw new Error('Task was cancelled by user.');
+                  }
+
+                  // Loop detection
+                  const loopInfo = checkLoop(name, args);
+                  if (loopInfo.isLoop) {
+                    const loopMsg = `[LOOP_DETECTED]: Repetitive tool invocation loop detected. Tool "${name}" was called with identical arguments ${loopInfo.count} times consecutively. Task halted.`;
+                    emit('task_error', { error: loopMsg });
+                    loopDetectedError = loopMsg;
+                    this.activeAbortController?.abort();
+                    throw new Error(loopMsg);
+                  }
+
+                  const toolResult = await this.tools.executeTool(name, args);
+
+                  if (name === 'propose_edit' && toolResult.success && toolResult.data) {
+                    const prop = toolResult.data as ProposeEditResult;
+                    stagedProposals.set(prop.relativePath, prop);
+                    if (!modifiedFiles.includes(prop.relativePath)) {
+                      modifiedFiles.push(prop.relativePath);
+                    }
+
+                    if (plan && plan.steps.length > 0) {
+                      const currentStep = plan.steps.find((s) => s.status === 'in_progress');
+                      if (currentStep) {
+                        currentStep.status = 'completed';
+                        emit('step_update', currentStep);
+                        const nextStep = plan.steps.find((s) => s.status === 'pending');
+                        if (nextStep) {
+                          nextStep.status = 'in_progress';
+                          emit('step_update', nextStep);
+                        }
+                      }
+                    }
+
+                    emit('diff_ready', {
+                      file: prop.relativePath,
+                      explanation: prop.explanation,
+                      totalStaged: stagedProposals.size
+                    });
+
+                    await this.openDiffReview(prop, { allowQueue: true });
+
+                    toolResult.output = `Proposed modifications staged for "${prop.relativePath}" (${stagedProposals.size} file(s) currently staged for review). User review is required before changes are applied. You may continue with your plan to inspect and modify additional files, run verification, or provide your final COMPLETION summary.`;
+                  }
+
+                  return toolResult;
+                },
+                abortSignal: this.activeAbortController.signal
+              }
+            );
+            this.activeAbortController = undefined;
+            break;
+          } catch (turnErr: unknown) {
+            this.activeAbortController = undefined;
+            const errMsg = turnErr instanceof Error ? turnErr.message : String(turnErr);
+            const isRateLimit = errMsg.includes('429') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('rate limit');
+            if (isRateLimit && !this.isCancelled && rateLimitRetries < maxRateLimitRetries) {
+              rateLimitRetries++;
+              let delayMs = 35000;
+              const match = errMsg.match(/retry in\s+([\d.]+)\s*s/i);
+              if (match && match[1]) {
+                delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
+              }
+              emit('thought', `Model rate limit (429) encountered. Retrying in ${Math.round(delayMs / 1000)}s (backoff ${rateLimitRetries}/${maxRateLimitRetries})...`);
+              await new Promise((res) => setTimeout(res, delayMs));
+              continue;
+            }
+            throw turnErr;
           }
-        );
+        }
 
         if (this.isCancelled) {
           emit('task_cancelled', { reason: 'Cancelled by user.' });
@@ -131,10 +328,44 @@ export class AutonomousAgentCoordinator {
           }
         }
 
-        // 4. Check for tool invocation
+        // Check if agent completed its plan or task during native execution
+        const completionSummary = this.extractCompletion(response);
+        const hasPendingSteps = plan && plan.steps.length > 0 && plan.steps.some((s) => s.status === 'pending');
+
+        if (stagedProposals.size > 0 && (completionSummary || !hasPendingSteps)) {
+          const summary = completionSummary ||
+            `Autonomous task generated proposed edits for ${stagedProposals.size} file(s): ${Array.from(stagedProposals.keys()).join(', ')}. Ready for user diff review.`;
+          emit('task_completed', { summary, modifiedFiles });
+          return {
+            success: true,
+            summary,
+            plan,
+            modifiedFiles,
+            proposedEdit: Array.from(stagedProposals.values())[stagedProposals.size - 1],
+            proposedEdits: Array.from(stagedProposals.values())
+          };
+        }
+
+        // 4. Check for tool invocation in text stream fallback
         const toolCall = this.extractToolCall(response);
         if (toolCall) {
           emit('tool_call', { toolName: toolCall.tool, args: toolCall.arguments });
+
+          // Loop detection
+          const loopInfo = checkLoop(toolCall.tool, toolCall.arguments);
+          if (loopInfo.isLoop) {
+            emit('task_error', {
+              error: `Repetitive tool invocation loop detected: tool "${toolCall.tool}" was called with identical arguments ${loopInfo.count} times consecutively.`
+            });
+            return {
+              success: false,
+              summary: `Autonomous execution terminated: repetitive tool call loop detected for "${toolCall.tool}".`,
+              error: 'LOOP_DETECTED',
+              plan,
+              modifiedFiles,
+              proposedEdits: Array.from(stagedProposals.values())
+            };
+          }
 
           // Update active plan step
           if (plan && plan.steps.length > 0) {
@@ -168,40 +399,43 @@ export class AutonomousAgentCoordinator {
 
           // If tool was propose_edit: handle safe diff review
           if (toolCall.tool === 'propose_edit' && toolResult.success && toolResult.data) {
-            proposedEditResult = toolResult.data as ProposeEditResult;
-            modifiedFiles.push(proposedEditResult.relativePath);
-
-            if (plan) {
-              plan.steps.forEach((s) => {
-                if (s.status === 'in_progress') s.status = 'completed';
-              });
-              emit('plan_created', plan);
+            const prop = toolResult.data as ProposeEditResult;
+            stagedProposals.set(prop.relativePath, prop);
+            if (!modifiedFiles.includes(prop.relativePath)) {
+              modifiedFiles.push(prop.relativePath);
             }
 
             emit('diff_ready', {
-              file: proposedEditResult.relativePath,
-              explanation: proposedEditResult.explanation
+              file: prop.relativePath,
+              explanation: prop.explanation,
+              totalStaged: stagedProposals.size
             });
 
-            // Open diff view in VS Code
-            await this.openDiffReview(proposedEditResult);
+            await this.openDiffReview(prop, { allowQueue: true });
 
-            emit('task_completed', {
-              summary: `Proposed modifications generated for "${proposedEditResult.relativePath}". Ready for user diff review.`,
-              modifiedFiles
-            });
+            const hasPending = plan && plan.steps.length > 0 && plan.steps.some((s) => s.status === 'pending');
+            const comp = this.extractCompletion(response);
 
-            return {
-              success: true,
-              summary: `Autonomous task generated proposed edit for ${proposedEditResult.relativePath}.`,
-              plan,
-              modifiedFiles,
-              proposedEdit: proposedEditResult
-            };
+            if (!hasPending || comp) {
+              const summary = comp ||
+                `Proposed modifications generated for "${prop.relativePath}". Ready for user diff review.`;
+              emit('task_completed', { summary, modifiedFiles });
+              return {
+                success: true,
+                summary,
+                plan,
+                modifiedFiles,
+                proposedEdit: prop,
+                proposedEdits: Array.from(stagedProposals.values())
+              };
+            }
+
+            // Continue the multi-file loop!
+            currentTurnPrompt = `[TOOL RESULT for propose_edit]:\nProposed modifications staged for "${prop.relativePath}" (${stagedProposals.size} file(s) staged for review). User review is required before changes are applied. Continue with your execution plan to inspect and modify remaining files or provide your final COMPLETION summary.`;
+          } else {
+            // Non-edit tool feedback
+            currentTurnPrompt = `[TOOL RESULT for ${toolCall.tool}]:\n${toolResult.output}\n\nContinue to the next step of your plan. If ready to propose modifications, invoke propose_edit.`;
           }
-
-          // Otherwise: feed tool output back to TrueForge for next turn
-          currentTurnPrompt = `[TOOL RESULT for ${toolCall.tool}]:\n${toolResult.output}\n\nContinue to the next step of your plan. If ready to propose modifications, invoke propose_edit.`;
         } else {
           // No tool call: agent completed its thoughts or provided answer
           const summary = this.extractCompletion(response) || response;
@@ -210,31 +444,71 @@ export class AutonomousAgentCoordinator {
             emit('plan_created', plan);
           }
 
-          emit('task_completed', { summary, modifiedFiles });
+          const finalSummary = stagedProposals.size > 0
+            ? `${summary}\nStaged ${stagedProposals.size} proposed edit(s) for review: ${Array.from(stagedProposals.keys()).join(', ')}.`
+            : summary;
+
+          emit('task_completed', { summary: finalSummary, modifiedFiles });
           return {
             success: true,
-            summary,
+            summary: finalSummary,
             plan,
-            modifiedFiles
+            modifiedFiles,
+            proposedEdit: Array.from(stagedProposals.values())[stagedProposals.size - 1],
+            proposedEdits: Array.from(stagedProposals.values())
           };
         }
       }
 
       // Reached iteration limit
-      const limitSummary = `Reached maximum autonomous execution steps (${this.maxIterations}).`;
+      const limitSummary = stagedProposals.size > 0
+        ? `Reached maximum autonomous execution steps (${effectiveMaxIterations}). Staged ${stagedProposals.size} file(s) for review.`
+        : `Reached maximum autonomous execution steps (${effectiveMaxIterations}).`;
       emit('task_completed', { summary: limitSummary, modifiedFiles });
-      return { success: true, summary: limitSummary, plan, modifiedFiles };
+      return {
+        success: true,
+        summary: limitSummary,
+        plan,
+        modifiedFiles,
+        proposedEdit: Array.from(stagedProposals.values())[stagedProposals.size - 1],
+        proposedEdits: Array.from(stagedProposals.values())
+      };
     } catch (err: unknown) {
+      if (loopDetectedError) {
+        emit('task_error', { error: loopDetectedError });
+        return {
+          success: false,
+          summary: loopDetectedError,
+          error: loopDetectedError,
+          plan,
+          modifiedFiles
+        };
+      }
       if (this.isCancelled) {
         emit('task_cancelled', { reason: 'Cancelled by user.' });
         return { success: false, summary: 'Task was cancelled by user.', modifiedFiles, cancelled: true };
       }
       const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.toLowerCase().includes('waiting for user input') ||
+        msg.toLowerCase().includes('waiting for tool response or user input')
+      ) {
+        isResumablePause = true;
+        emit('thought', `Autonomous task paused: ${msg}`);
+        return {
+          success: false,
+          summary: `Autonomous execution paused: ${msg}`,
+          plan,
+          modifiedFiles,
+          pausedForInput: true
+        };
+      }
       emit('task_error', { error: msg });
       return { success: false, summary: `Task failed: ${msg}`, error: msg, modifiedFiles };
     } finally {
       this.isCancelled = false;
-      if (this.currentSessionId) {
+      this.activeAbortController = undefined;
+      if (this.currentSessionId && !isResumablePause) {
         try {
           await this.connection.deleteSession(this.currentSessionId);
         } catch {
@@ -250,6 +524,12 @@ export class AutonomousAgentCoordinator {
    */
   public async cancel(): Promise<void> {
     this.isCancelled = true;
+    if (this.activeAbortController) {
+      try {
+        this.activeAbortController.abort();
+      } catch { }
+      this.activeAbortController = undefined;
+    }
     if (this.currentSessionId) {
       try {
         await this.connection.cancelTurn(this.currentSessionId);
@@ -263,12 +543,23 @@ export class AutonomousAgentCoordinator {
    * Opens the virtual proposed document in VS Code's diff editor
    * and displays explicit review actions.
    */
-  public async openDiffReview(proposed: ProposeEditResult): Promise<void> {
-    await this.inlineEditManager.registerAutonomousProposal(
-      proposed.absolutePath,
-      proposed.replacementCode,
-      proposed.explanation
-    );
+  public async openDiffReview(
+    proposed: ProposeEditResult,
+    options?: { allowQueue?: boolean }
+  ): Promise<void> {
+    if (this.inlineEditManager) {
+      await this.inlineEditManager.registerAutonomousProposal(
+        proposed.absolutePath,
+        proposed.replacementCode,
+        proposed.explanation,
+        {
+          startLine: proposed.startLine,
+          endLine: proposed.endLine,
+          fullProposedText: proposed.fullProposedText,
+          allowQueue: options?.allowQueue
+        }
+      );
+    }
   }
 
   private buildInitialPrompt(userTask: string): string {
@@ -281,7 +572,12 @@ export class AutonomousAgentCoordinator {
       `1. list_files: Lists files in the workspace. Arguments: { "directory": "optional/path" }`,
       `2. read_file: Reads lines from a file. Arguments: { "path": "src/file.ts", "startLine": 1, "endLine": 50 }`,
       `3. search_code: Searches code in workspace. Arguments: { "query": "text" }`,
-      `4. propose_edit: Proposes modifications for review. Arguments: { "path": "src/file.ts", "replacementCode": "...", "explanation": "..." }`,
+      `4. propose_edit: Proposes modifications for review. Arguments: { "path": "src/file.ts", "replacementCode": "...", "explanation": "...", "startLine": 28, "endLine": 33 }`,
+      ``,
+      `### IMPORTANT INSTRUCTIONS FOR PROPOSE_EDIT:`,
+      `- Always inspect target lines using read_file before proposing modifications.`,
+      `- For targeted edits: specify 1-indexed inclusive "startLine" and "endLine". "replacementCode" must contain ONLY the replacement code for those exact lines, NOT the entire file or unrelated functions.`,
+      `- Full-file replacement: omit "startLine" and "endLine" only when replacing the entire file.`,
       ``,
       `### PROTOCOL:`,
       `1. First, output a numbered execution plan under a "PLAN:" header.`,

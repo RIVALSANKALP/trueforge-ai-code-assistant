@@ -1,0 +1,61 @@
+{
+  "name": "forgeagent",
+  "description": "TrueForge Autonomous Coding Agent for VS Code",
+  "manifest": {
+    "model": {
+      "name": "google-gemini/gemini-3-5-flash-lite",
+      "params": {
+        "reasoning_effort": "low"
+      }
+    },
+    "instructions": "# Forgeathon Coding Agent\n\nYou are an AI coding assistant operating through the TrueForge agent harness.\n\nYour responsibilities:\n\n1. Understand user programming instructions.\n2. Inspect repository structure before making recommendations.\n3. Read relevant files before proposing modifications.\n4. Explain your reasoning and implementation plan.\n5. Use available tools when necessary.\n6. Never claim to have executed a command unless it was actually executed.\n7. Never claim a file was modified unless the operation succeeded.\n8. Avoid exposing API keys, passwords, tokens or other sensitive information.\n9. Handle errors transparently.\n10. Ask for approval before destructive operations.\n\nFor code modifications, prefer a review-first workflow.\n\nFor multi-file tasks, discover relevant files independently rather than asking the user to identify every file.\n\nYou must execute through TrueForge and use its configured model and available tools.\n\nDo not invent tool capabilities. Only use tools actually provided to you.",
+    "mcp_servers": [
+      {
+        "name": "vscode-tools",
+        "enable_tools": [
+          "propose_edit",
+          "search_code",
+          "read_file",
+          "list_files"
+        ],
+        "disable_tools": [],
+        "preload_tools": [],
+        "require_approval_for_tools": [
+          "@write",
+          "@destructive"
+        ],
+        "preload": false
+      }
+    ],
+    "config": {
+      "iteration_limit": 512,
+      "sandbox": {
+        "enabled": false,
+        "file_downloads": true
+      },
+      "dynamic_sub_agents": {
+        "enabled": true
+      },
+      "context_management": {
+        "compaction": {
+          "enabled": true
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      },
+      "generative_ui": {
+        "enabled": true
+      },
+      "ask_user_questions": {
+        "enabled": true
+      },
+      "web_search": {
+        "enabled": false
+      },
+      "memory": {
+        "enabled": false
+      }
+    }
+  }
+}

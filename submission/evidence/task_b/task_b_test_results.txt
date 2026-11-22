@@ -1,0 +1,13 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.3.4, pluggy-1.5.0 -- E:\anaconda3\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Forgeathon-Evaluation\flask
+configfile: pyproject.toml
+plugins: anyio-4.7.0
+collecting ... collected 61 items / 58 deselected / 3 selected
+
+..\Forgeathon-Evaluation\flask\tests\test_cli.py::test_config PASSED     [ 33%]
+..\Forgeathon-Evaluation\flask\tests\test_cli.py::test_config_help PASSED [ 66%]
+..\Forgeathon-Evaluation\flask\tests\test_cli.py::test_config_nested_masking PASSED [100%]
+
+====================== 3 passed, 58 deselected in 0.35s =======================

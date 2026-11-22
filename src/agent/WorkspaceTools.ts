@@ -10,6 +10,14 @@ export interface ToolExecutionResult {
   data?: any;
 }
 
+export interface ProposeEditArgs {
+  path: string;
+  replacementCode: string;
+  explanation?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
 export interface ProposeEditResult {
   relativePath: string;
   absolutePath: string;
@@ -17,6 +25,8 @@ export interface ProposeEditResult {
   explanation: string;
   originalText: string;
   fullProposedText: string;
+  startLine?: number;
+  endLine?: number;
 }
 
 export class WorkspaceTools {
@@ -139,6 +149,16 @@ export class WorkspaceTools {
         };
       }
 
+      // Revalidate immediately before opening file to guard against TOCTOU symlink swaps
+      if (!this.discovery.isPathWithinWorkspace(targetPath)) {
+        return {
+          success: false,
+          toolName: 'read_file',
+          output: `Access denied: Path "${args.path}" resolves outside the active workspace boundary.`,
+          error: 'OUT_OF_BOUNDS'
+        };
+      }
+
       const content = fs.readFileSync(targetPath, 'utf8');
       const lines = content.split(/\r?\n/);
       const totalLines = lines.length;
@@ -192,12 +212,16 @@ export class WorkspaceTools {
       }
 
       const maxMatches = args.maxMatches ?? 20;
-      const allFiles = await this.discovery.discoverFiles({ maxFiles: 100 });
+      const allFiles = await this.discovery.discoverFiles({ maxFiles: 2000 });
       const results: Array<{ file: string; line: number; text: string }> = [];
-      const lowerQuery = args.query.toLowerCase();
+      const lowerQuery = args.query.toLowerCase().trim();
 
+      // 1. Primary pass: exact case-insensitive substring match
       for (const file of allFiles) {
         if (results.length >= maxMatches) break;
+
+        // Revalidate file boundary before reading
+        if (!this.discovery.isPathWithinWorkspace(file.absolutePath)) continue;
 
         try {
           const content = fs.readFileSync(file.absolutePath, 'utf8');
@@ -215,6 +239,56 @@ export class WorkspaceTools {
           }
         } catch {
           // Skip unreadable files
+        }
+      }
+
+      // 2. Fallback pass: whitespace-normalized and symbol-name matching if primary pass yielded 0 matches
+      if (results.length === 0) {
+        const normalizedQuery = lowerQuery.replace(/\s+/g, ' ');
+        // Extract symbol identifier if query resembles a definition, assignment, or call
+        const symbolMatch =
+          args.query.match(/(?:def|function|class|const|let|var)\s+([a-zA-Z0-9_$]+)/i) ||
+          args.query.match(/([a-zA-Z0-9_$]+)\s*\(/);
+        const symbol = symbolMatch ? symbolMatch[1].toLowerCase() : null;
+
+        for (const file of allFiles) {
+          if (results.length >= maxMatches) break;
+
+          // Revalidate file boundary before reading
+          if (!this.discovery.isPathWithinWorkspace(file.absolutePath)) continue;
+
+          try {
+            const content = fs.readFileSync(file.absolutePath, 'utf8');
+            const lines = content.split(/\r?\n/);
+
+            for (let i = 0; i < lines.length; i++) {
+              const lineText = lines[i];
+              const normalizedLine = lineText.toLowerCase().replace(/\s+/g, ' ');
+
+              let matched = false;
+              // Check whitespace-normalized match
+              if (normalizedQuery.length > 2 && normalizedLine.includes(normalizedQuery)) {
+                matched = true;
+              } else if (symbol && symbol.length > 1) {
+                // Check symbol definition or presence as distinct word
+                const symbolRegex = new RegExp(`\\b${symbol}\\b`, 'i');
+                if (symbolRegex.test(lineText)) {
+                  matched = true;
+                }
+              }
+
+              if (matched) {
+                results.push({
+                  file: file.relativePath,
+                  line: i + 1,
+                  text: lineText.trim()
+                });
+                if (results.length >= maxMatches) break;
+              }
+            }
+          } catch {
+            // Skip unreadable files
+          }
         }
       }
 
@@ -249,7 +323,9 @@ export class WorkspaceTools {
   public async proposeEdit(args: {
     path: string;
     replacementCode: string;
-    explanation: string;
+    explanation?: string;
+    startLine?: number;
+    endLine?: number;
   }): Promise<ToolExecutionResult> {
     try {
       if (!this.discovery.isWorkspaceAvailable()) {
@@ -268,6 +344,55 @@ export class WorkspaceTools {
           output: 'Missing required arguments: path and replacementCode',
           error: 'MISSING_ARG'
         };
+      }
+
+      // Validate range arguments if supplied
+      const hasStart = args.startLine !== undefined;
+      const hasEnd = args.endLine !== undefined;
+
+      if ((hasStart && !hasEnd) || (!hasStart && hasEnd)) {
+        return {
+          success: false,
+          toolName: 'propose_edit',
+          output: 'Invalid range: Both startLine and endLine must be specified together for targeted edits.',
+          error: 'INVALID_RANGE'
+        };
+      }
+
+      const isTargeted = hasStart && hasEnd;
+
+      if (isTargeted) {
+        if (
+          typeof args.startLine !== 'number' ||
+          typeof args.endLine !== 'number' ||
+          !Number.isInteger(args.startLine) ||
+          !Number.isInteger(args.endLine)
+        ) {
+          return {
+            success: false,
+            toolName: 'propose_edit',
+            output: 'Invalid range: startLine and endLine must be integers.',
+            error: 'INVALID_RANGE'
+          };
+        }
+
+        if (args.startLine! < 1) {
+          return {
+            success: false,
+            toolName: 'propose_edit',
+            output: `Invalid range: startLine (${args.startLine}) must be >= 1.`,
+            error: 'INVALID_RANGE'
+          };
+        }
+
+        if (args.startLine! > args.endLine!) {
+          return {
+            success: false,
+            toolName: 'propose_edit',
+            output: `Invalid range: startLine (${args.startLine}) cannot be greater than endLine (${args.endLine}).`,
+            error: 'INVALID_RANGE'
+          };
+        }
       }
 
       const targetPath = path.resolve(this.workspaceRoot, args.path);
@@ -302,20 +427,98 @@ export class WorkspaceTools {
         };
       }
 
+      // Revalidate immediately before opening file to guard against TOCTOU symlink swaps
+      if (!this.discovery.isPathWithinWorkspace(targetPath)) {
+        return {
+          success: false,
+          toolName: 'propose_edit',
+          output: `Access denied: Path "${args.path}" resolves outside the active workspace boundary.`,
+          error: 'OUT_OF_BOUNDS'
+        };
+      }
+
       const originalText = fs.readFileSync(targetPath, 'utf8');
+
+      // Compute line start offsets
+      const lineStarts: number[] = [0];
+      for (let i = 0; i < originalText.length; i++) {
+        if (originalText[i] === '\n') {
+          lineStarts.push(i + 1);
+        } else if (originalText[i] === '\r') {
+          if (i + 1 < originalText.length && originalText[i + 1] === '\n') {
+            lineStarts.push(i + 2);
+            i++;
+          } else {
+            lineStarts.push(i + 1);
+          }
+        }
+      }
+
+      const totalLines = lineStarts.length;
+
+      let fullProposedText: string;
+      if (isTargeted) {
+        const startLine = args.startLine!;
+        const endLine = args.endLine!;
+
+        if (endLine > totalLines) {
+          return {
+            success: false,
+            toolName: 'propose_edit',
+            output: `Invalid range: endLine (${endLine}) exceeds file length (${totalLines} lines).`,
+            error: 'INVALID_RANGE'
+          };
+        }
+
+        const startOffset = lineStarts[startLine - 1];
+        const prefix = originalText.slice(0, startOffset);
+
+        const hasCRLF = originalText.includes('\r\n');
+        const eol = hasCRLF ? '\r\n' : '\n';
+
+        let suffix: string;
+        let replacementWithBreak: string;
+
+        if (endLine < totalLines) {
+          const nextLineOffset = lineStarts[endLine];
+          suffix = originalText.slice(nextLineOffset);
+          replacementWithBreak = (args.replacementCode.endsWith('\n') || args.replacementCode.endsWith('\r'))
+            ? args.replacementCode
+            : args.replacementCode + eol;
+        } else {
+          suffix = '';
+          if (originalText.endsWith('\n') || originalText.endsWith('\r')) {
+            replacementWithBreak = (args.replacementCode.endsWith('\n') || args.replacementCode.endsWith('\r'))
+              ? args.replacementCode
+              : args.replacementCode + eol;
+          } else {
+            replacementWithBreak = args.replacementCode;
+          }
+        }
+
+        fullProposedText = prefix + replacementWithBreak + suffix;
+      } else {
+        fullProposedText = args.replacementCode;
+      }
+
       const editResult: ProposeEditResult = {
         relativePath: relative,
         absolutePath: targetPath,
         replacementCode: args.replacementCode,
         explanation: args.explanation || 'Proposed code modifications',
         originalText,
-        fullProposedText: args.replacementCode
+        fullProposedText,
+        ...(isTargeted ? { startLine: args.startLine, endLine: args.endLine } : {})
       };
+
+      const summary = isTargeted
+        ? `Proposed modifications staged for "${relative}" (lines ${args.startLine}-${args.endLine}). User diff review required.`
+        : `Proposed modifications staged for "${relative}". User diff review required.`;
 
       return {
         success: true,
         toolName: 'propose_edit',
-        output: `Proposed modifications staged for "${relative}". User diff review required.`,
+        output: summary,
         data: editResult
       };
     } catch (err: unknown) {

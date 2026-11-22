@@ -97,6 +97,12 @@
         "title": "TrueForge: Run Autonomous Coding Task",
         "category": "TrueForge",
         "icon": "$(zap)"
+      },
+      {
+        "command": "trueforge.registerMcpConnector",
+        "title": "TrueForge: Register MCP Connector",
+        "category": "TrueForge",
+        "icon": "$(plug)"
       }
     ],
     "menus": {
@@ -158,6 +164,20 @@
           "type": "number",
           "default": 3500,
           "description": "Maximum token budget allocated for workspace context in inline edits."
+        },
+        "trueforge.maxAutonomousIterations": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Maximum number of autonomous execution iterations per task (1-30)."
+        },
+        "trueforge.mcpPort": {
+          "type": "number",
+          "default": 8799,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Preferred port for the local loopback MCP bridge (1-65535, default 8799). If occupied, an OS-assigned dynamic port will be used."
         }
       }
     }
@@ -170,7 +190,9 @@
     "check-types": "tsc --noEmit",
     "smoke-test": "node dist/smokeTestRunner.js",
     "test-milestone2": "node -r ./src/test/mockVscode.cjs dist/inlineEditTest.js",
-    "test-milestone3": "node -r ./src/test/mockVscode.cjs dist/autonomousAgentTest.js"
+    "test-milestone3": "node -r ./src/test/mockVscode.cjs dist/autonomousAgentTest.js",
+    "test-mcp": "node -r ./src/test/mockVscode.cjs dist/mcpServerTest.js",
+    "test-turn-response": "node -r ./src/test/mockVscode.cjs dist/turnResponseTest.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.0",

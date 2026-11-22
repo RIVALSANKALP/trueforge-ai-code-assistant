@@ -16,6 +16,7 @@ export interface RelevantFileResult {
 
 export class WorkspaceContextDiscovery {
   private readonly workspaceRoot: string;
+  private readonly canonicalWorkspaceRoot: string;
   private readonly ignoreRules: string[] = [];
 
   // Built-in directory exclusions
@@ -59,35 +60,159 @@ export class WorkspaceContextDiscovery {
   constructor(workspaceRoot?: string) {
     if (!workspaceRoot || !workspaceRoot.trim()) {
       this.workspaceRoot = '';
+      this.canonicalWorkspaceRoot = '';
       return;
     }
-    this.workspaceRoot = path.resolve(workspaceRoot);
-    if (fs.existsSync(this.workspaceRoot)) {
-      this.loadGitignore();
+    const resolved = path.resolve(workspaceRoot);
+    this.workspaceRoot = resolved;
+    if (fs.existsSync(resolved)) {
+      try {
+        this.canonicalWorkspaceRoot = fs.realpathSync.native
+          ? fs.realpathSync.native(resolved)
+          : fs.realpathSync(resolved);
+        this.loadGitignore();
+      } catch {
+        // Fail closed: if canonical resolution fails, do NOT trust lexical root
+        this.canonicalWorkspaceRoot = '';
+      }
+    } else {
+      this.canonicalWorkspaceRoot = '';
     }
   }
 
   public isWorkspaceAvailable(): boolean {
-    return Boolean(this.workspaceRoot && this.workspaceRoot.length > 0 && fs.existsSync(this.workspaceRoot));
+    return Boolean(
+      this.workspaceRoot &&
+      this.workspaceRoot.length > 0 &&
+      this.canonicalWorkspaceRoot &&
+      this.canonicalWorkspaceRoot.length > 0 &&
+      fs.existsSync(this.canonicalWorkspaceRoot)
+    );
   }
 
   public getWorkspaceRoot(): string {
     return this.workspaceRoot;
   }
 
+  public getCanonicalWorkspaceRoot(): string {
+    return this.canonicalWorkspaceRoot;
+  }
+
   /**
-   * Enforces that the target path is strictly within the workspace boundary
-   * and prevents directory traversal attacks.
+   * Helper: checks if candidate canonical path resides within the canonical workspace root.
+   */
+  private isCanonicalSubpath(candidatePath: string): boolean {
+    if (!this.canonicalWorkspaceRoot) {
+      return false;
+    }
+    const isWindows = process.platform === 'win32';
+
+    let normCandidate = path.normalize(candidatePath);
+    let normRoot = path.normalize(this.canonicalWorkspaceRoot);
+
+    if (isWindows) {
+      normCandidate = normCandidate.replace(/^[a-zA-Z]:/, (m) => m.toUpperCase());
+      normRoot = normRoot.replace(/^[a-zA-Z]:/, (m) => m.toUpperCase());
+
+      if (normCandidate === normRoot) {
+        return true;
+      }
+
+      const rootWithSep = normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep;
+      if (normCandidate.startsWith(rootWithSep)) {
+        return true;
+      }
+
+      // Case-insensitive fallback on Windows
+      const lowerCandidate = normCandidate.toLowerCase();
+      const lowerRoot = normRoot.toLowerCase();
+      const lowerRootWithSep = lowerRoot.endsWith(path.sep) ? lowerRoot : lowerRoot + path.sep;
+      return lowerCandidate === lowerRoot || lowerCandidate.startsWith(lowerRootWithSep);
+    } else {
+      // POSIX: strict case-sensitive containment
+      if (normCandidate === normRoot) {
+        return true;
+      }
+      const rootWithSep = normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep;
+      return normCandidate.startsWith(rootWithSep);
+    }
+  }
+
+  /**
+   * Enforces that the target path is strictly within the workspace boundary,
+   * preventing lexical directory traversal, symlink escapes, junction escapes, and broken symlinks.
    */
   public isPathWithinWorkspace(targetPath: string): boolean {
     if (!this.isWorkspaceAvailable() || !targetPath || !targetPath.trim()) {
       return false;
     }
-    const resolved = path.resolve(this.workspaceRoot, targetPath);
-    const rootWithSep = this.workspaceRoot.endsWith(path.sep)
-      ? this.workspaceRoot
-      : this.workspaceRoot + path.sep;
-    return resolved === this.workspaceRoot || resolved.startsWith(rootWithSep);
+
+    // 1. Fast lexical containment check (rejects ../ escapes, absolute system roots)
+    const resolvedRoot = path.resolve(this.workspaceRoot);
+    const resolvedTarget = path.isAbsolute(targetPath)
+      ? path.resolve(targetPath)
+      : path.resolve(this.workspaceRoot, targetPath);
+
+    const isWindows = process.platform === 'win32';
+    const normLexicalRoot = isWindows
+      ? resolvedRoot.replace(/^[a-zA-Z]:/, (m) => m.toUpperCase()).toLowerCase()
+      : resolvedRoot;
+    const normLexicalTarget = isWindows
+      ? resolvedTarget.replace(/^[a-zA-Z]:/, (m) => m.toUpperCase()).toLowerCase()
+      : resolvedTarget;
+    const lexicalRootWithSep = normLexicalRoot.endsWith(path.sep)
+      ? normLexicalRoot
+      : normLexicalRoot + path.sep;
+
+    if (normLexicalTarget !== normLexicalRoot && !normLexicalTarget.startsWith(lexicalRootWithSep)) {
+      return false;
+    }
+
+    // 2. Canonical containment check with ancestor resolution
+    let current = resolvedTarget;
+    const unverifiedParts: string[] = [];
+
+    while (true) {
+      try {
+        const lstat = fs.lstatSync(current);
+        if (lstat.isSymbolicLink()) {
+          try {
+            const realCurrent = fs.realpathSync.native
+              ? fs.realpathSync.native(current)
+              : fs.realpathSync(current);
+            const candidate = unverifiedParts.length > 0
+              ? path.join(realCurrent, ...unverifiedParts)
+              : realCurrent;
+            return this.isCanonicalSubpath(candidate);
+          } catch {
+            // Broken symlink in target or ancestor chain -> fail closed
+            return false;
+          }
+        } else {
+          // Regular directory or file
+          const realCurrent = fs.realpathSync.native
+            ? fs.realpathSync.native(current)
+            : fs.realpathSync(current);
+          const candidate = unverifiedParts.length > 0
+            ? path.join(realCurrent, ...unverifiedParts)
+            : realCurrent;
+          return this.isCanonicalSubpath(candidate);
+        }
+      } catch (err: any) {
+        if (err && err.code === 'ENOENT') {
+          const parent = path.dirname(current);
+          if (parent === current) {
+            // Reached filesystem root without finding any existing path component
+            return false;
+          }
+          unverifiedParts.unshift(path.basename(current));
+          current = parent;
+        } else {
+          // EPERM / EACCES or other filesystem error -> fail closed
+          return false;
+        }
+      }
+    }
   }
 
   /**
@@ -146,6 +271,27 @@ export class WorkspaceContextDiscovery {
             }
           } catch {
             // Ignore unreadable files
+          }
+        } else if (entry.isSymbolicLink()) {
+          // Safe handling for in-workspace file symlinks:
+          // Boundary containment was already verified above via isPathWithinWorkspace(fullPath).
+          // Note: Directory symlinks are intentionally NOT recursed into to prevent infinite circular loops.
+          try {
+            const stat = fs.statSync(fullPath);
+            if (stat.isFile()) {
+              if (this.shouldIgnoreFile(entry.name, relativePath)) {
+                continue;
+              }
+              if (stat.size <= maxSizeBytes) {
+                results.push({
+                  relativePath,
+                  absolutePath: fullPath,
+                  sizeBytes: stat.size
+                });
+              }
+            }
+          } catch {
+            // Ignore unreadable or broken symlinks
           }
         }
       }

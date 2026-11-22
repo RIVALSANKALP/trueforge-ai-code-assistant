@@ -1,0 +1,26 @@
+{
+  "task": "Task A: get_debug_flag Inline Edit",
+  "status": "PASSED",
+  "targetFile": "src/flask/helpers.py",
+  "targetSymbol": "get_debug_flag",
+  "prompt": "Treat the values 'off' and 'n' as false as well, case-insensitively, and update the docstring to list every value that is treated as false.",
+  "workflow": {
+    "action": "Inline Edit via TrueForge extension",
+    "zeroWriteBeforeApproval": true,
+    "diffPresented": true,
+    "explicitApprovalRequired": true,
+    "accepted": true
+  },
+  "verification": {
+    "FLASK_DEBUG_off": false,
+    "FLASK_DEBUG_OFF_caps": false,
+    "FLASK_DEBUG_n": false,
+    "FLASK_DEBUG_N_caps": false,
+    "FLASK_DEBUG_0": false,
+    "FLASK_DEBUG_false": false,
+    "FLASK_DEBUG_no": false,
+    "FLASK_DEBUG_1": true,
+    "FLASK_DEBUG_true": true,
+    "pytest_debug_tests": "5 passed, 0 failed"
+  }
+}

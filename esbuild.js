@@ -9,7 +9,9 @@ async function main() {
       extension: "src/extension.ts",
       smokeTestRunner: "src/test/smokeTestRunner.ts",
       inlineEditTest: "src/test/inlineEditTest.ts",
-      autonomousAgentTest: "src/test/autonomousAgentTest.ts"
+      autonomousAgentTest: "src/test/autonomousAgentTest.ts",
+      turnResponseTest: "src/test/turnResponseTest.ts",
+      mcpServerTest: "src/test/mcpServerTest.ts"
     },
     bundle: true,
     format: "cjs",

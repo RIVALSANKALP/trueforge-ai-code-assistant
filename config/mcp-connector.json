@@ -1,0 +1,15 @@
+{
+  "name": "vscode-tools",
+  "manifest": {
+    "type": "remote",
+    "name": "vscode-tools",
+    "url": "http://127.0.0.1:8799/mcp",
+    "description": "Local workspace tools for code search, file reading, and edit proposals",
+    "auth": {
+      "type": "header",
+      "headers": {
+        "authorization": "Bearer <EPHEMERAL_TOKEN_SYNCED_BY_EXTENSION>"
+      }
+    }
+  }
+}

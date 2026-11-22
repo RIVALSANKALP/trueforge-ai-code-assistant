@@ -1,0 +1,57 @@
+{
+  "DEBUG": false,
+  "TESTING": false,
+  "PROPAGATE_EXCEPTIONS": null,
+  "SECRET_KEY": "***",
+  "SECRET_KEY_FALLBACKS": "***",
+  "PERMANENT_SESSION_LIFETIME": "31 days, 0:00:00",
+  "USE_X_SENDFILE": false,
+  "TRUSTED_HOSTS": null,
+  "SERVER_NAME": null,
+  "APPLICATION_ROOT": "/",
+  "SESSION_COOKIE_NAME": "session",
+  "SESSION_COOKIE_DOMAIN": null,
+  "SESSION_COOKIE_PATH": null,
+  "SESSION_COOKIE_HTTPONLY": true,
+  "SESSION_COOKIE_SECURE": false,
+  "SESSION_COOKIE_PARTITIONED": false,
+  "SESSION_COOKIE_SAMESITE": null,
+  "SESSION_REFRESH_EACH_REQUEST": true,
+  "MAX_CONTENT_LENGTH": null,
+  "MAX_FORM_MEMORY_SIZE": 500000,
+  "MAX_FORM_PARTS": 1000,
+  "SEND_FILE_MAX_AGE_DEFAULT": null,
+  "TRAP_BAD_REQUEST_ERRORS": null,
+  "TRAP_HTTP_EXCEPTIONS": false,
+  "EXPLAIN_TEMPLATE_LOADING": false,
+  "PREFERRED_URL_SCHEME": "http",
+  "TEMPLATES_AUTO_RELOAD": null,
+  "MAX_COOKIE_SIZE": 4093,
+  "PROVIDE_AUTOMATIC_OPTIONS": true,
+  "APPLICATION_NAME": "Round 1 Benchmark Evaluator",
+  "PORT": 5000,
+  "DATABASE_PASSWORD": "***",
+  "API_KEY": "***",
+  "JWT_TOKEN": "***",
+  "SECRET_SALT": "***",
+  "NESTED_CONFIG": {
+    "sub_password": "***",
+    "public_endpoint": "https://api.benchmark.internal"
+  },
+  "SERVICES": [
+    {
+      "service_key": "***",
+      "label": "primary_service"
+    },
+    {
+      "auth_token": "***",
+      "label": "secondary_service"
+    }
+  ],
+  "TUPLE_METRIC": [
+    {
+      "token_id": "***",
+      "status": "active"
+    }
+  ]
+}

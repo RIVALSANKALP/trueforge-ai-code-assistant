@@ -1,0 +1,173 @@
+﻿diff --git a/docs/cli.rst b/docs/cli.rst
+index a72e6d51..e9a40964 100644
+--- a/docs/cli.rst
++++ b/docs/cli.rst
+@@ -146,6 +146,43 @@ context will be active, and the app instance will be imported. ::
+ Use :meth:`~Flask.shell_context_processor` to add other automatic imports.
+ 
+ 
++Show Application Configuration
++-------------------------------
++
++The ``config`` command displays the configuration values loaded by the
++Flask application as formatted JSON. It requires an application to be
++specified using the ``--app`` option. ::
++
++    $ flask --app hello config
++    {
++      "DEBUG": false,
++      "TESTING": false,
++      "SECRET_KEY": "***",
++      "APPLICATION_ROOT": "/"
++    }
++
++Use the ``--sort-keys`` option to sort the configuration keys alphabetically. ::
++
++    $ flask --app hello config --sort-keys
++    {
++      "APPLICATION_ROOT": "/",
++      "DEBUG": false,
++      "SECRET_KEY": "***",
++      "TESTING": false
++    }
++
++Configuration keys containing ``SECRET``, ``PASSWORD``, ``TOKEN``, or
++``KEY`` are masked with ``***`` to avoid exposing sensitive values in
++the command output. Matching is case-insensitive.
++
++Configuration keys containing ``SECRET``, ``PASSWORD``, ``TOKEN``, or
++``KEY`` are masked with ``***`` to avoid exposing sensitive values in
++the command output. Matching is case-insensitive.
++
++This command is useful for inspecting the configuration loaded by an
++application while debugging or verifying its environment.
++
++
+ .. _dotenv:
+ 
+ Environment Variables From dotenv
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index ed11f256..f10f8698 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -594,7 +594,7 @@ class FlaskGroup(AppGroup):
+             self.add_command(run_command)
+             self.add_command(shell_command)
+             self.add_command(routes_command)
+-
++            self.add_command(config_command)
+         self._loaded_plugin_commands = False
+ 
+     def _load_plugin_commands(self) -> None:
+@@ -1115,6 +1115,33 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         click.echo(template.format(*row))
+ 
+ 
++@click.command("config", short_help="Show configuration variables.")
++@with_appcontext
++def config_command() -> None:
++    """Show all configuration variables for the application."""
++    import json
++    import re
++# MANUAL CONFLICT TEST - preserve this change
++    sensitive_pattern = re.compile(r"(SECRET|PASSWORD|TOKEN|KEY)", re.IGNORECASE)
++# PHASE 3 CONFLICT VERIFICATION
++    def mask_val(key: str, val: object) -> object:
++        if sensitive_pattern.search(key):
++            return "***"
++        if isinstance(val, dict):
++            return {k: mask_val(str(k), v) for k, v in val.items()}
++        if isinstance(val, list):
++            return [mask_val("", item) for item in val]
++        if isinstance(val, tuple):
++            return tuple(mask_val("", item) for item in val)
++        return val
++
++    def default_serializer(o: object) -> str:
++        return str(o)
++
++    masked_config = {
++        k: mask_val(k, v) for k, v in current_app.config.items()
++    }
++    click.echo(json.dumps(masked_config, indent=2, default=default_serializer))
+ cli = FlaskGroup(
+     name="flask",
+     help="""\
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index e254c1dd..477e3ce2 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,6 +1,7 @@
+ # This file was part of Flask-CLI and was modified under the terms of
+ # its Revised BSD License. Copyright © 2015 CERN.
+ import importlib.metadata
++import json
+ import os
+ import platform
+ import ssl
+@@ -700,3 +701,65 @@ def test_cli_empty(app):
+ def test_run_exclude_patterns():
+     ctx = run_command.make_context("run", ["--exclude-patterns", __file__])
+     assert ctx.params["exclude_patterns"] == [__file__]
++
++
++def test_config(app):
++    app.config["PASSWORD"] = "secret"
++    runner = CliRunner()
++    flask_cli = FlaskGroup(create_app=lambda: app)
++    result = runner.invoke(flask_cli, ["config"])
++    assert result.exit_code == 0
++    data = json.loads(result.output)
++    assert data["SECRET_KEY"] == "***"
++    assert data["PASSWORD"] == "***"
++    assert data["TESTING"] is True
++
++
++def test_config_help(app):
++    runner = CliRunner()
++    flask_cli = FlaskGroup(create_app=lambda: app)
++    result = runner.invoke(flask_cli, ["--help"])
++    assert result.exit_code == 0
++    assert "config" in result.output
++    assert "Show configuration variables." in result.output
++
++
++def test_config_nested_masking(app):
++    app.config["my_secret_token"] = "lowercase_sensitive"
++    app.config["NESTED_DICT"] = {
++        "user_password": "nested_password",
++        "visible_info": "public_nested",
++    }
++    app.config["LIST_OF_DICTS"] = [
++        {"service_key": "list_key", "visible_item": "public_list"},
++        "plain_list_string",
++    ]
++    app.config["TUPLE_OF_DICTS"] = (
++        {"api_token": "tuple_token", "visible_tuple": "public_tuple"},
++    )
++    app.config["VISIBLE_SETTING"] = "visible_top_level"
++
++    runner = CliRunner()
++    flask_cli = FlaskGroup(create_app=lambda: app)
++    result = runner.invoke(flask_cli, ["config"])
++    assert result.exit_code == 0
++    data = json.loads(result.output)
++
++    # A lowercase sensitive key
++    assert data["my_secret_token"] == "***"
++
++    # A sensitive key inside a nested dictionary
++    assert data["NESTED_DICT"]["user_password"] == "***"
++    assert data["NESTED_DICT"]["visible_info"] == "public_nested"
++
++    # A sensitive key inside a dictionary contained in a list
++    assert data["LIST_OF_DICTS"][0]["service_key"] == "***"
++    assert data["LIST_OF_DICTS"][0]["visible_item"] == "public_list"
++    assert data["LIST_OF_DICTS"][1] == "plain_list_string"
++
++    # Tuple structure preserved in JSON with masked dict inside
++    assert data["TUPLE_OF_DICTS"][0]["api_token"] == "***"
++    assert data["TUPLE_OF_DICTS"][0]["visible_tuple"] == "public_tuple"
++
++    # A non-sensitive value that remains visible
++    assert data["VISIBLE_SETTING"] == "visible_top_level"

@@ -1,0 +1,34 @@
+﻿=== FLASK_DEBUG='off' ===
+False
+=== FLASK_DEBUG='OFF' ===
+False
+=== FLASK_DEBUG='n' ===
+False
+=== FLASK_DEBUG='N' ===
+False
+=== FLASK_DEBUG='0' ===
+False
+=== FLASK_DEBUG='false' ===
+False
+=== FLASK_DEBUG='no' ===
+False
+=== FLASK_DEBUG='1' ===
+True
+=== FLASK_DEBUG='true' ===
+True
+=== PYTEST test_helpers.py (debug tests) ===
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.3.4, pluggy-1.5.0 -- E:\anaconda3\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Forgeathon-Evaluation\flask
+configfile: pyproject.toml
+plugins: anyio-4.7.0
+collecting ... collected 35 items / 30 deselected / 5 selected
+
+..\Forgeathon-Evaluation\flask\tests\test_helpers.py::TestHelpers::test_get_debug_flag[-False] PASSED [ 20%]
+..\Forgeathon-Evaluation\flask\tests\test_helpers.py::TestHelpers::test_get_debug_flag[0-False] PASSED [ 40%]
+..\Forgeathon-Evaluation\flask\tests\test_helpers.py::TestHelpers::test_get_debug_flag[False-False] PASSED [ 60%]
+..\Forgeathon-Evaluation\flask\tests\test_helpers.py::TestHelpers::test_get_debug_flag[No-False] PASSED [ 80%]
+..\Forgeathon-Evaluation\flask\tests\test_helpers.py::TestHelpers::test_get_debug_flag[True-True] PASSED [100%]
+
+====================== 5 passed, 30 deselected in 0.05s =======================

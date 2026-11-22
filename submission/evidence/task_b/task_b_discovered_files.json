@@ -1,0 +1,17 @@
+[
+  {
+    "path": "src/flask/cli.py",
+    "role": "Implementation",
+    "description": "Flask CLI command implementation and registration into FlaskGroup built-in commands."
+  },
+  {
+    "path": "tests/test_cli.py",
+    "role": "Tests",
+    "description": "CLI unit and integration tests covering 'flask config', 'flask --help', and nested sensitive key masking."
+  },
+  {
+    "path": "docs/cli.rst",
+    "role": "Documentation",
+    "description": "Sphinx documentation for built-in CLI commands, documenting 'flask config' usage, masking behavior, and examples."
+  }
+]
